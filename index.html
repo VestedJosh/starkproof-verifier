@@ -444,7 +444,7 @@
                     <strong>Verify proofs on-chain using Chainlink Functions on Arbitrum</strong>
                 </p>
                 <p style="color: #6c757d; line-height: 1.7; margin-bottom: 25px;">
-                    Connect your wallet to verify starkProof proofs directly on the Arbitrum blockchain using Chainlink's decentralized oracle network.
+                    Connect your wallet (MetaMask, Coinbase Wallet, or other Web3 wallet) to verify starkProof proofs directly on the Arbitrum blockchain using Chainlink's decentralized oracle network.
                 </p>
 
                 <!-- Wallet Connection Status -->
@@ -452,7 +452,7 @@
 
                 <!-- Connect Wallet Button -->
                 <button class="btn" id="connectWalletBtn" onclick="switchToArbitrum()" style="width: 100%; font-size: 1.2em; padding: 18px; margin-bottom: 20px;">
-                    🦊 Connect MetaMask & Switch to Arbitrum
+                    🔗 Connect Wallet & Switch to Arbitrum
                 </button>
 
                 <!-- Chainlink Functions Section (Hidden until connected) -->
@@ -475,6 +475,44 @@
                         </button>
                         <button class="btn" onclick="callChainlinkFunction()" style="width: 100%; font-size: 1.1em; padding: 15px;">
                             ⚡ Verify with Chainlink Functions
+                        </button>
+                    </div>
+
+                    <!-- Direct sendRequest Parameters -->
+                    <div class="section" style="margin-top: 10px;">
+                        <h2>🧩 Direct sendRequest Parameters</h2>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <!-- <div>
+                                <div class="stat-label">Consumer Contract Address</div>
+                                <input id="srContract" type="text" placeholder="0x..." style="width: 100%; padding: 12px; border-radius: 10px; border: 2px solid #e9ecef;">
+                            </div>
+                            <div>
+                                <div class="stat-label">Subscription ID (uint64)</div>
+                                <input id="srSubId" type="number" placeholder="123" style="width: 100%; padding: 12px; border-radius: 10px; border: 2px solid #e9ecef;">
+                            </div>
+                            <div>
+                                <div class="stat-label">Callback Gas Limit (uint32)</div>
+                                <input id="srGas" type="number" placeholder="300000" value="300000" style="width: 100%; padding: 12px; border-radius: 10px; border: 2px solid #e9ecef;">
+                            </div>
+                            <div>
+                                <div class="stat-label">Secrets Location</div>
+                                <select id="srSecretsLoc" style="width: 100%; padding: 12px; border-radius: 10px; border: 2px solid #e9ecef;">
+                                    <option value="0">Inline</option>
+                                    <option value="1">Remote</option>
+                                    <option value="2" selected>DONHosted</option>
+                                </select>
+                            </div> -->
+                            <!-- <div style="grid-column: 1 / span 2;">
+                                <div class="stat-label">Encrypted Secrets Reference (0x...)</div>
+                                <input id="srSecretsRef" type="text" placeholder="0x..." style="width: 100%; padding: 12px; border-radius: 10px; border: 2px solid #e9ecef;">
+                            </div> -->
+                            <!-- <div style="grid-column: 1 / span 2;">
+                                <div class="stat-label">Arg[0] API URL</div>
+                                <input id="srArg0" type="text" value="https://api.nyccode.org/api/getproof" style="width: 100%; padding: 12px; border-radius: 10px; border: 2px solid #e9ecef;">
+                            </div> -->
+                        </div>
+                        <button class="btn" onclick="sendFunctionsRequest()" style="width: 100%; font-size: 1.1em; padding: 15px; margin-top: 15px;">
+                            🚀 Send Functions Request (sendRequest)
                         </button>
                     </div>
 
@@ -751,6 +789,156 @@
         let userAddress = null;
         let loadedProofData = null; // Store loaded proof data
 
+        // Hardcoded Chainlink Functions source code
+        const RISK_VERIFICATION_SOURCE = `const ethers = await import("npm:ethers@6.10.0");
+const wasm = await import("https://raw.githubusercontent.com/Lendvest/WASM-Verifier-Functions/refs/heads/main/risc0_wasm_verifier.js");
+
+
+// Initialize the WASM module (this is the crucial step!)
+await wasm.default(); // or await wasm.init() depending on how it's exported
+
+
+// Extract arguments passed to the Chainlink Functions script
+const API = args[0];
+// Token auth removed - using secrets.apiKey instead
+
+
+function hexToUint8Array(hex) {
+  if (hex.startsWith("0x")) hex = hex.slice(2);
+  if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length % 2 !== 0) {
+    throw new Error("Invalid hex string");
+  }
+  const pairs = hex.match(/.{1,2}/g);
+  const bytes = pairs.map(b => parseInt(b, 16));
+  return new Uint8Array(bytes);
+}
+
+// Make HTTP request to the API
+// NOTE: API uses GET method
+const response = await Functions.makeHttpRequest({
+  url: API,
+  method: "GET",
+  timeout: 9000,
+  headers: {
+    "Content-Type": "application/json",
+    "x-api-key": "9747e9923a51b5270ae59708407dee4d753ce1945e7153d21202aa5175992d3e",
+  },
+});
+
+// Extract the API response
+const apiResponse = response.data;
+
+// Validate API response has success field
+if (!apiResponse || !apiResponse.success) {
+  throw new Error("API request failed or returned unsuccessful response");
+}
+
+// Extract the actual data from the 'data' wrapper
+const responseData = apiResponse.data;
+
+// Validate response structure
+if (typeof responseData !== "object" || responseData === null) {
+  throw new Error("API response data is not a valid object");
+}
+
+// Check for required fields
+if (!responseData.verified_statistics || !responseData.receipt) {
+  throw new Error(
+    "API response missing required fields: verified_statistics or receipt"
+  );
+}
+
+const verifiedStats = responseData.verified_statistics;
+const receiptHash = ethers.keccak256(ethers.toUtf8Bytes(responseData.receipt));
+
+console.log("Verified Statistics:", verifiedStats);
+console.log("Receipt Hash:", receiptHash);
+
+// Extract and convert rates and count to BigInt
+let liquidityRateSum_1e27;
+let variableBorrowRateSum_1e27;
+let numRates;
+
+try {
+  // total_supply_rate_sum maps to liquidityRateSum
+  const liquidityRateStr = verifiedStats.total_supply_rate_sum;
+  if (!liquidityRateStr) {
+    throw new Error("total_supply_rate_sum is missing");
+  }
+  liquidityRateSum_1e27 = BigInt(liquidityRateStr);
+} catch (e) {
+  console.error(
+    \`Error processing total_supply_rate_sum: Value='\${verifiedStats.total_supply_rate_sum}', Error=\${e}\`
+  );
+  throw new Error(
+    \`Invalid total_supply_rate_sum format (expected large integer string): \${verifiedStats.total_supply_rate_sum}\`
+  );
+}
+
+try {
+  // total_borrow_rate_sum maps to variableBorrowRateSum
+  const variableBorrowRateStr = verifiedStats.total_borrow_rate_sum;
+  if (!variableBorrowRateStr) {
+    throw new Error("total_borrow_rate_sum is missing");
+  }
+  variableBorrowRateSum_1e27 = BigInt(variableBorrowRateStr);
+} catch (e) {
+  console.error(
+    \`Error processing total_borrow_rate_sum: Value='\${verifiedStats.total_borrow_rate_sum}', Error=\${e}\`
+  );
+  throw new Error(
+    \`Invalid total_borrow_rate_sum format (expected large integer string): \${verifiedStats.total_borrow_rate_sum}\`
+  );
+}
+
+try {
+  // days_collected represents the number of rate samples collected
+  const numRatesValue = verifiedStats.days_collected;
+  if (numRatesValue === undefined || numRatesValue === null) {
+    throw new Error("days_collected is missing");
+  }
+  numRates = BigInt(numRatesValue);
+} catch (e) {
+  console.error(
+    \`Error processing days_collected: Value='\${verifiedStats.days_collected}', Error=\${e}\`
+  );
+  throw new Error(
+    \`Invalid days_collected format (expected integer): \${verifiedStats.days_collected}\`
+  );
+}
+
+// Validate receipt hash is a string
+if (typeof receiptHash !== "string" || receiptHash.length === 0) {
+  throw new Error(
+    \`Invalid receipt hash format (expected non-empty string): \${receiptHash}\`
+  );
+}
+
+// console.log("rrr",responseData.receipt)
+// console.log("programId", responseData.program_id)
+const verificationResult = wasm.verify_proof(responseData.receipt,responseData.program_id)
+const proof_verification_success = verificationResult.valid;
+let journal_hash;
+if(proof_verification_success){
+    journal_hash = verificationResult.journal_hash;
+}
+
+// Encode the data with the receipt hash as the 4th parameter
+// This matches LVLidoVaultUtil.sol:529-530 expectation:
+// (uint256 sumLiquidityRates_1e27, uint256 sumVariableBorrowRates_1e27, uint256 numRates, string memory hash)
+// const encodedData = ethers.AbiCoder.defaultAbiCoder().encode(
+//   ["uint256", "uint256", "uint256", "bool", "string"],
+//   [liquidityRateSum_1e27, variableBorrowRateSum_1e27, numRates, proof_verification_success, journal_hash]
+// );
+
+
+const encodedData = ethers.AbiCoder.defaultAbiCoder().encode(
+  ["uint256", "uint256", "uint256"],
+  [liquidityRateSum_1e27, variableBorrowRateSum_1e27, numRates]
+);
+
+return ethers.getBytes(encodedData);`;
+
         const ARBITRUM_NETWORK = {
             chainId: '0xa4b1', // 42161 in hex
             chainName: 'Arbitrum One',
@@ -764,7 +952,14 @@
         };
 
         // Chainlink Functions Contract Configuration
-        const CHAINLINK_CONTRACT_ADDRESS = '0xcAAD1DE0D7bfDc07F4D526d864250e82751723a8';
+        const CHAINLINK_CONTRACT_ADDRESS = '0x546c37d802Fa96Df55014115124dED096f09C83B';
+        // Hardcoded Functions request parameters (update ENCRYPTED_SECRETS_REFERENCE before use)
+        const FUNCTIONS_CONSUMER_ADDRESS = '0x546c37d802Fa96Df55014115124dED096f09C83B';
+        const FUNCTIONS_SUBSCRIPTION_ID = '72';
+        const FUNCTIONS_CALLBACK_GAS_LIMIT = 250000; // uint32
+        const FUNCTIONS_SECRETS_LOCATION = 2; // 0=Inline,1=Remote,2=DONHosted
+        const FUNCTIONS_ENCRYPTED_SECRETS_REFERENCE = []; // TODO: set 0x... reference
+        const FUNCTIONS_ARG0 = 'https://api.nyccode.org/api/getproof';
 
         // ABI for getRate function and viewing rate
         const CHAINLINK_CONTRACT_ABI = [
@@ -873,42 +1068,119 @@
             }
         ];
 
+        // Minimal ABI for sendRequest on consumer contract
+        const SEND_REQUEST_ABI = [
+            {
+                "inputs": [
+                    { "internalType": "string", "name": "source", "type": "string" },
+                    { "internalType": "uint8", "name": "secretsLocation", "type": "uint8" },
+                    { "internalType": "bytes", "name": "encryptedSecretsReference", "type": "bytes" },
+                    { "internalType": "string[]", "name": "args", "type": "string[]" },
+                    { "internalType": "bytes[]", "name": "bytesArgs", "type": "bytes[]" },
+                    { "internalType": "uint64", "name": "subscriptionId", "type": "uint64" },
+                    { "internalType": "uint32", "name": "callbackGasLimit", "type": "uint32" }
+                ],
+                "name": "sendRequest",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            }
+        ];
+
         async function switchToArbitrum() {
             console.log('switchToArbitrum called');
 
             if (typeof window.ethereum === 'undefined') {
-                alert('MetaMask is not installed. Please install MetaMask to use Chainlink Functions verification.');
+                alert('No Ethereum wallet detected. Please install MetaMask or Coinbase Wallet to use Chainlink Functions verification.');
                 return false;
             }
 
-            console.log('MetaMask detected, requesting accounts...');
+            const walletType = detectWalletType();
+            const walletName = walletType === 'coinbase' ? 'Coinbase Wallet' : walletType === 'metamask' ? 'MetaMask' : 'Wallet';
+            console.log(`${walletName} detected, requesting accounts...`);
 
             try {
                 // Request account access
                 const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
                 console.log('Accounts received:', accounts);
 
-                // Try to switch to Arbitrum
-                try {
-                    await window.ethereum.request({
-                        method: 'wallet_switchEthereumChain',
-                        params: [{ chainId: ARBITRUM_NETWORK.chainId }],
-                    });
-                } catch (switchError) {
-                    // This error code indicates that the chain has not been added to MetaMask
-                    if (switchError.code === 4902) {
-                        try {
-                            await window.ethereum.request({
-                                method: 'wallet_addEthereumChain',
-                                params: [ARBITRUM_NETWORK],
-                            });
-                        } catch (addError) {
-                            console.error('Error adding Arbitrum network:', addError);
+                if (accounts.length === 0) {
+                    alert('Please connect your wallet account.');
+                    return false;
+                }
+
+                // For Coinbase Wallet, don't force chain switch - let user do it manually
+                if (walletType === 'coinbase') {
+                    // Check current chain
+                    const currentChainId = await window.ethereum.request({ method: 'eth_chainId' });
+                    console.log('Current chain ID:', currentChainId);
+                    
+                    if (currentChainId !== ARBITRUM_NETWORK.chainId) {
+                        // Show message to user to switch manually
+                        const shouldSwitch = confirm(
+                            'Please switch to Arbitrum One network in your Coinbase Wallet.\n\n' +
+                            'Click OK to attempt automatic switch, or Cancel to switch manually.'
+                        );
+                        
+                        if (shouldSwitch) {
+                            try {
+                                await window.ethereum.request({
+                                    method: 'wallet_switchEthereumChain',
+                                    params: [{ chainId: ARBITRUM_NETWORK.chainId }],
+                                });
+                            } catch (switchError) {
+                                // Chain not added, try to add it
+                                if (switchError.code === 4902) {
+                                    try {
+                                        await window.ethereum.request({
+                                            method: 'wallet_addEthereumChain',
+                                            params: [ARBITRUM_NETWORK],
+                                        });
+                                    } catch (addError) {
+                                        console.error('Error adding Arbitrum network:', addError);
+                                        alert('Please manually add Arbitrum One network in your Coinbase Wallet settings.');
+                                        return false;
+                                    }
+                                } else {
+                                    console.error('Error switching to Arbitrum:', switchError);
+                                    alert('Please manually switch to Arbitrum One network in your Coinbase Wallet.');
+                                    return false;
+                                }
+                            }
+                        } else {
+                            // User chose to switch manually, just initialize provider
+                            provider = new ethers.providers.Web3Provider(window.ethereum);
+                            signer = provider.getSigner();
+                            userAddress = accounts[0];
+                            updateWalletUI();
+                            return true;
+                        }
+                    }
+                } else {
+                    // For MetaMask and other wallets, auto-switch
+                    try {
+                        await window.ethereum.request({
+                            method: 'wallet_switchEthereumChain',
+                            params: [{ chainId: ARBITRUM_NETWORK.chainId }],
+                        });
+                    } catch (switchError) {
+                        // This error code indicates that the chain has not been added
+                        if (switchError.code === 4902) {
+                            try {
+                                await window.ethereum.request({
+                                    method: 'wallet_addEthereumChain',
+                                    params: [ARBITRUM_NETWORK],
+                                });
+                            } catch (addError) {
+                                console.error('Error adding Arbitrum network:', addError);
+                                alert('Failed to add Arbitrum network. Please add it manually in your wallet settings.');
+                                return false;
+                            }
+                        } else {
+                            console.error('Error switching to Arbitrum:', switchError);
+                            alert('Failed to switch to Arbitrum network. Please switch manually.');
                             return false;
                         }
-                    } else {
-                        console.error('Error switching to Arbitrum:', switchError);
-                        return false;
                     }
                 }
 
@@ -926,22 +1198,51 @@
                 updateWalletUI();
                 return true;
             } catch (error) {
-                console.error('Error connecting to MetaMask:', error);
+                console.error(`Error connecting to ${walletName}:`, error);
+                if (error.code === 4001) {
+                    alert('Connection request was rejected. Please try again and approve the connection.');
+                } else {
+                    alert(`Error connecting wallet: ${error.message}`);
+                }
                 return false;
             }
         }
 
-        function updateWalletUI() {
+        async function updateWalletUI() {
             const walletStatus = document.getElementById('walletStatus');
             const connectBtn = document.getElementById('connectWalletBtn');
             const chainlinkSection = document.getElementById('chainlinkFunctionsSection');
 
             if (userAddress) {
+                // Check current network
+                let networkInfo = 'Arbitrum One';
+                let networkStatus = 'success-box';
+                
+                if (typeof window.ethereum !== 'undefined') {
+                    try {
+                        const currentChainId = await window.ethereum.request({ method: 'eth_chainId' });
+                        const chainIdNum = parseInt(currentChainId, 16);
+                        
+                        if (chainIdNum === 42161 || currentChainId === ARBITRUM_NETWORK.chainId) {
+                            networkInfo = 'Arbitrum One';
+                            networkStatus = 'success-box';
+                        } else {
+                            networkInfo = `Chain ID: ${chainIdNum} (Please switch to Arbitrum One)`;
+                            networkStatus = '';
+                        }
+                    } catch (error) {
+                        console.error('Error checking chain ID:', error);
+                    }
+                }
+                
+                const walletType = detectWalletType();
+                const walletName = walletType === 'coinbase' ? 'Coinbase Wallet' : walletType === 'metamask' ? 'MetaMask' : 'Wallet';
+                
                 walletStatus.innerHTML = `
-                    <div class="info-box success-box">
-                        <strong>✅ Wallet Connected</strong><br>
+                    <div class="info-box ${networkStatus}">
+                        <strong>✅ ${walletName} Connected</strong><br>
                         Address: <code>${userAddress.substring(0, 6)}...${userAddress.substring(38)}</code><br>
-                        Network: <strong>Arbitrum One</strong>
+                        Network: <strong>${networkInfo}</strong>
                     </div>
                 `;
                 connectBtn.style.display = 'none';
@@ -957,16 +1258,50 @@
             }
         }
 
+        // Detect wallet type
+        function detectWalletType() {
+            if (typeof window.ethereum === 'undefined') {
+                return null;
+            }
+            // Check for Coinbase Wallet
+            if (window.ethereum.isCoinbaseWallet) {
+                return 'coinbase';
+            }
+            // Check for MetaMask
+            if (window.ethereum.isMetaMask) {
+                return 'metamask';
+            }
+            // Generic ethereum provider
+            return 'generic';
+        }
+
         // Auto-reconnect to Arbitrum on page load (only if already connected)
         window.addEventListener('load', async () => {
-            console.log('Page loaded, checking for existing MetaMask connection...');
+            console.log('Page loaded, checking for existing wallet connection...');
+            const walletType = detectWalletType();
+            console.log('Detected wallet type:', walletType);
+            
             if (typeof window.ethereum !== 'undefined') {
-                // Check if already connected
-                const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-                console.log('Existing accounts:', accounts);
-                if (accounts.length > 0) {
-                    console.log('Wallet already connected, auto-switching to Arbitrum...');
-                    await switchToArbitrum();
+                try {
+                    // Check if already connected
+                    const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+                    console.log('Existing accounts:', accounts);
+                    if (accounts.length > 0) {
+                        console.log('Wallet already connected, checking network...');
+                        // Don't auto-switch for Coinbase to avoid refresh loops
+                        // Just initialize the provider and update UI
+                        if (walletType === 'coinbase') {
+                            provider = new ethers.providers.Web3Provider(window.ethereum);
+                            signer = provider.getSigner();
+                            userAddress = accounts[0];
+                            updateWalletUI();
+                        } else {
+                            // For MetaMask, auto-switch to Arbitrum
+                            await switchToArbitrum();
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error checking wallet connection:', error);
                 }
             }
         });
@@ -974,16 +1309,63 @@
         // Listen for account changes
         if (typeof window.ethereum !== 'undefined') {
             window.ethereum.on('accountsChanged', (accounts) => {
+                console.log('Accounts changed:', accounts);
                 if (accounts.length === 0) {
                     userAddress = null;
+                    provider = null;
+                    signer = null;
                     updateWalletUI();
                 } else {
-                    switchToArbitrum();
+                    // Reinitialize provider with new account
+                    const walletType = detectWalletType();
+                    if (walletType === 'coinbase') {
+                        // For Coinbase, just update the UI without auto-switching
+                        provider = new ethers.providers.Web3Provider(window.ethereum);
+                        signer = provider.getSigner();
+                        userAddress = accounts[0];
+                        updateWalletUI();
+                    } else {
+                        // For MetaMask, switch to Arbitrum
+                        switchToArbitrum();
+                    }
                 }
             });
 
-            window.ethereum.on('chainChanged', () => {
-                window.location.reload();
+            // Improved chain changed handler - don't reload immediately
+            window.ethereum.on('chainChanged', (chainId) => {
+                console.log('Chain changed to:', chainId);
+                const walletType = detectWalletType();
+                
+                // For Coinbase Wallet, update UI without reloading
+                if (walletType === 'coinbase') {
+                    // Reinitialize provider
+                    provider = new ethers.providers.Web3Provider(window.ethereum);
+                    signer = provider.getSigner();
+                    updateWalletUI();
+                    
+                    // Only reload if switching to a different network (not Arbitrum)
+                    if (chainId !== ARBITRUM_NETWORK.chainId) {
+                        // Update UI to show current network
+                        const walletStatus = document.getElementById('walletStatus');
+                        if (walletStatus && userAddress) {
+                            walletStatus.innerHTML = `
+                                <div class="info-box" style="background: #fff3cd; border-color: #ffc107;">
+                                    <strong>⚠️ Wrong Network</strong><br>
+                                    Please switch to Arbitrum One (Chain ID: 42161)<br>
+                                    Current Chain ID: ${parseInt(chainId, 16)}
+                                </div>
+                            `;
+                        }
+                    }
+                } else {
+                    // For MetaMask, reload only if not already on Arbitrum
+                    if (chainId !== ARBITRUM_NETWORK.chainId) {
+                        // Small delay to prevent refresh loops
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 100);
+                    }
+                }
             });
         }
 
@@ -991,8 +1373,7 @@
             window.open('https://faucet.quicknode.com/arbitrum/arbitrum-one', '_blank');
         }
 
-        // Call Chainlink Functions to verify proof on-chain
-        // Note: The contract function is called getRate() but the DON verifies the proof on the backend
+        // Call Chainlink Functions to verify proof on-chain via sendRequest(...)
         async function callChainlinkFunction() {
             if (!userAddress) {
                 alert('Please connect your wallet first');
@@ -1003,57 +1384,70 @@
             statusDiv.style.display = 'block';
             statusDiv.innerHTML = `
                 <div class="info-box info-blue">
-                    <p style="text-align: center;">⏳ Preparing Chainlink Functions request...</p>
+                    <p style="text-align: center;">⏳ Preparing Chainlink Functions sendRequest...</p>
                     <p style="text-align: center; margin-top: 10px;">Connected wallet: <code>${userAddress}</code></p>
                 </div>
             `;
 
             try {
-                console.log('Calling Chainlink Functions getRate() to verify proof...');
-                console.log('Contract address:', CHAINLINK_CONTRACT_ADDRESS);
+                // if (!FUNCTIONS_ENCRYPTED_SECRETS_REFERENCE || !FUNCTIONS_ENCRYPTED_SECRETS_REFERENCE.startsWith('0x')) {
+                //     throw new Error('Encrypted secrets reference (0x...) not set');
+                // }
 
-                // Create contract instance
+                // Use hardcoded Functions source code
+                const source = RISK_VERIFICATION_SOURCE;
+
+                // Create consumer contract instance with sendRequest ABI
                 const contract = new ethers.Contract(
-                    CHAINLINK_CONTRACT_ADDRESS,
-                    CHAINLINK_CONTRACT_ABI,
+                    FUNCTIONS_CONSUMER_ADDRESS,
+                    SEND_REQUEST_ABI,
                     signer
                 );
 
-                console.log('Contract instance created');
-                console.log('Contract address:', CHAINLINK_CONTRACT_ADDRESS);
-                console.log('User address:', userAddress);
-
                 statusDiv.innerHTML = `
                     <div class="info-box info-blue">
-                        <p style="text-align: center;">⏳ Estimating gas for verification request...</p>
+                        <p style="text-align: center;">⏳ Estimating gas for sendRequest...</p>
                     </div>
                 `;
 
-                // Estimate gas directly without checking configuration
                 let gasEstimate;
                 try {
-                    gasEstimate = await contract.estimateGas.getRate();
-                    console.log('✅ Gas estimate successful:', gasEstimate.toString());
+                    gasEstimate = await contract.estimateGas.sendRequest(
+                        source,
+                        FUNCTIONS_SECRETS_LOCATION,
+                        FUNCTIONS_ENCRYPTED_SECRETS_REFERENCE,
+                        [FUNCTIONS_ARG0],
+                        [],
+                        ethers.BigNumber.from(FUNCTIONS_SUBSCRIPTION_ID),
+                        Number(FUNCTIONS_CALLBACK_GAS_LIMIT)
+                    );
+                    console.log('✅ Gas estimate for sendRequest:', gasEstimate.toString());
                 } catch (estimateError) {
-                    console.error('⚠️ Gas estimation failed, using manual gas limit');
+                    console.error('⚠️ Gas estimation failed for sendRequest, using manual gas limit');
                     console.error('Estimate error:', estimateError.message);
-                    // Use manual gas limit if estimation fails
-                    gasEstimate = ethers.BigNumber.from('300000');
+                    gasEstimate = ethers.BigNumber.from(String(FUNCTIONS_CALLBACK_GAS_LIMIT));
                     console.log('Using manual gas limit:', gasEstimate.toString());
                 }
 
                 statusDiv.innerHTML = `
                     <div class="info-box info-blue">
-                        <p style="text-align: center;">⏳ Sending transaction to Arbitrum...</p>
+                        <p style="text-align: center;">⏳ Sending sendRequest transaction to Arbitrum...</p>
                         <p style="text-align: center; margin-top: 10px;">Estimated gas: <code>${gasEstimate.toString()}</code></p>
                         <p style="text-align: center; margin-top: 10px;"><strong>Please confirm in MetaMask</strong></p>
                     </div>
                 `;
 
-                // Send transaction
-                const tx = await contract.getRate({
-                    gasLimit: gasEstimate.mul(120).div(100) // 20% buffer
-                });
+                // Send sendRequest transaction
+                const tx = await contract.sendRequest(
+                    source,
+                    FUNCTIONS_SECRETS_LOCATION,
+                    FUNCTIONS_ENCRYPTED_SECRETS_REFERENCE,
+                    [FUNCTIONS_ARG0],
+                    [],
+                    ethers.BigNumber.from(FUNCTIONS_SUBSCRIPTION_ID),
+                    Number(FUNCTIONS_CALLBACK_GAS_LIMIT),
+                    { gasLimit: gasEstimate.mul(120).div(100) }
+                );
 
                 console.log('Transaction sent:', tx.hash);
 
@@ -1074,17 +1468,12 @@
                 console.log('Block number:', receipt.blockNumber);
                 console.log('Gas used:', receipt.gasUsed.toString());
 
-                // Extract request ID from events
+                // Extract request ID from events (optional)
                 let requestId = null;
                 if (receipt.events && receipt.events.length > 0) {
-                    // Look for RequestSent event
-                    const requestEvent = receipt.events.find(e =>
-                        e.event === 'RequestSent' ||
-                        e.topics[0] === ethers.utils.id('RequestSent(bytes32)')
-                    );
-
-                    if (requestEvent && requestEvent.topics && requestEvent.topics[1]) {
-                        requestId = requestEvent.topics[1];
+                    const requestEvent = receipt.events.find(e => e.event === 'RequestSent');
+                    if (requestEvent && requestEvent.args && requestEvent.args.id) {
+                        requestId = requestEvent.args.id;
                     }
                 }
 
@@ -1102,26 +1491,26 @@
                             <li>Gas Used: <code>${receipt.gasUsed.toString()}</code></li>
                             ${requestId ? `<li>Request ID: <code>${requestId}</code></li>` : ''}
                         </ul>
-                        <p style="margin-top: 15px;">
-                            <a href="https://arbiscan.io/tx/${tx.hash}" target="_blank" style="color: #28a745; font-weight: bold;">
-                                View on Arbiscan →
-                            </a>
-                        </p>
+                            <p style="margin-top: 15px;">
+                                <a href="https://arbiscan.io/tx/${tx.hash}" target="_blank" style="color: #28a745; font-weight: bold;">
+                                    View on Arbiscan →
+                                </a>
+                            </p>
                         <div style="background: #d4edda; padding: 15px; border-radius: 10px; margin-top: 20px;">
-                            <p style="font-weight: 600;">⏳ Chainlink DON is now verifying your proof...</p>
+                            <p style="font-weight: 600;">⏳ Chainlink DON is now processing your Functions request...</p>
                             <p style="margin-top: 10px;">This typically takes 1-2 minutes. The DON will:</p>
                             <ol style="margin: 10px 0 0 20px;">
                                 <li>Load the WASM verifier module</li>
                                 <li>Verify the ZK-STARK proof cryptographically</li>
-                                <li>Post the result back to your contract</li>
+                                <li>Post the result back to your consumer contract</li>
                             </ol>
-                            <p style="margin-top: 15px;"><strong>You can check the result by calling <code>rate()</code> on the contract after fulfillment.</strong></p>
+                            <p style="margin-top: 15px;"><strong>Check your contract state/events for fulfillment.</strong></p>
                         </div>
                     </div>
                 `;
 
             } catch (error) {
-                console.error('Error calling Chainlink Functions:', error);
+                console.error('Error sending Chainlink Functions request:', error);
                 console.error('Error details:', JSON.stringify(error, null, 2));
 
                 let errorMessage = error.message;
@@ -1156,6 +1545,110 @@
                             <summary style="cursor: pointer; color: #721c24; font-weight: bold;">Show technical details</summary>
                             <pre style="background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto; margin-top: 10px; font-size: 0.85em;">${JSON.stringify(error, null, 2)}</pre>
                         </details>
+                    </div>
+                `;
+            }
+        }
+
+        // Directly call consumer.sendRequest(...) with provided parameters
+        async function sendFunctionsRequest() {
+            if (!userAddress) {
+                alert('Please connect your wallet first');
+                return;
+            }
+
+            const statusDiv = document.getElementById('chainlinkCallStatus');
+            statusDiv.style.display = 'block';
+            statusDiv.innerHTML = `
+                <div class="info-box info-blue">
+                    <p style="text-align: center;">⏳ Fetching source and preparing request...</p>
+                </div>
+            `;
+
+            try {
+                const consumerAddress =FUNCTIONS_CONSUMER_ADDRESS;
+                const subIdStr = FUNCTIONS_SUBSCRIPTION_ID;
+                const gasStr = FUNCTIONS_CALLBACK_GAS_LIMIT;
+                const secretsLoc = FUNCTIONS_SECRETS_LOCATION;
+                const secretsRef = FUNCTIONS_ENCRYPTED_SECRETS_REFERENCE;
+                const arg0 = FUNCTIONS_ARG0;
+
+                if (!ethers.utils.isAddress(consumerAddress)) {
+                    throw new Error('Invalid consumer contract address');
+                }
+                if (!subIdStr) throw new Error('Subscription ID is required');
+                if (!gasStr) throw new Error('Callback gas limit is required');
+                // if (!secretsRef || !secretsRef.startsWith('0x')) throw new Error('Encrypted secrets reference must be 0x-prefixed bytes');
+
+                // Use hardcoded Functions source code
+                const source = RISK_VERIFICATION_SOURCE;
+
+                const contract = new ethers.Contract(consumerAddress, SEND_REQUEST_ABI, signer);
+
+                statusDiv.innerHTML = `
+                    <div class="info-box info-blue">
+                        <p style="text-align: center;">⏳ Estimating gas for sendRequest...</p>
+                    </div>
+                `;
+
+                let gasEstimate;
+                try {
+                    gasEstimate = await contract.estimateGas.sendRequest(
+                        source,
+                        secretsLoc,
+                        secretsRef,
+                        [arg0],
+                        [],
+                        ethers.BigNumber.from(subIdStr),
+                        Number(gasStr)
+                    );
+                } catch (e) {
+                    console.warn('Gas estimation failed, defaulting to 300000:', e.message);
+                    gasEstimate = ethers.BigNumber.from('300000');
+                }
+
+                statusDiv.innerHTML = `
+                    <div class="info-box info-blue">
+                        <p style="text-align: center;">⏳ Sending sendRequest transaction...</p>
+                        <p style="text-align: center; margin-top: 10px;">Estimated gas: <code>${gasEstimate.toString()}</code></p>
+                    </div>
+                `;
+
+                const tx = await contract.sendRequest(
+                    source,
+                    secretsLoc,
+                    secretsRef,
+                    [arg0],
+                    [],
+                    ethers.BigNumber.from(subIdStr),
+                    Number(gasStr),
+                    { gasLimit: gasEstimate.mul(120).div(100) }
+                );
+
+                statusDiv.innerHTML = `
+                    <div class="info-box info-blue">
+                        <p style="text-align: center;">⏳ Waiting for confirmation...</p>
+                        <p style="text-align: center; margin-top: 10px;">TX Hash: <code>${tx.hash}</code></p>
+                        <p style="text-align: center; margin-top: 10px;"><a href="https://arbiscan.io/tx/${tx.hash}" target="_blank" style="color: #667eea;">View on Arbiscan →</a></p>
+                    </div>
+                `;
+
+                const receipt = await tx.wait(1);
+                createConfetti();
+                statusDiv.innerHTML = `
+                    <div class="info-box success-box">
+                        <h3 style="color: #28a745; margin-top: 0;">✅ sendRequest submitted!</h3>
+                        <p>Block: <code>${receipt.blockNumber}</code></p>
+                        <p>Gas Used: <code>${receipt.gasUsed.toString()}</code></p>
+                        <p><a href="https://arbiscan.io/tx/${tx.hash}" target="_blank" style="color: #28a745; font-weight: bold;">View on Arbiscan →</a></p>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('sendRequest error:', error);
+                statusDiv.innerHTML = `
+                    <div class="info-box" style="background: #f8d7da; border-color: #dc3545;">
+                        <h3 style="color: #dc3545; margin-top: 0;">❌ sendRequest Failed</h3>
+                        <p><strong>Error:</strong> ${error.message}</p>
                     </div>
                 `;
             }
