@@ -414,7 +414,7 @@
     <div class="container">
         <div class="header">
             <div class="header-content">
-                <h1>🔐 starkProof AAVE Verifier</h1>
+                <h1>🔐 Lendvest's ZK Proof Verifier</h1>
                 <p>Zero-Knowledge Proof Verification System</p>
                 <div class="badge">✓ Cryptographically Secure</div>
                 <div class="badge">⚡ Instant Browser Verification</div>
@@ -422,7 +422,6 @@
                 <div class="warning-banner" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">
                     <strong>✅ CRYPTOGRAPHIC VERIFICATION ACTIVE</strong><br>
                     This tool runs starkProof's verifier in your browser via WebAssembly (960KB module).
-                    It performs the same ZK-STARK verification as the Rust verifier and on-chain verification.
                     <strong>This is production-grade cryptographic verification</strong> - formally verified and audited by Trail of Bits.
                 </div>
             </div>
@@ -2200,7 +2199,7 @@ return ethers.getBytes(encodedData);`;
                 try {
                     const result = window.wasmVerifyProof(receipt, programId);
                     if (result.valid) {
-                        verificationStatus = "✅ Cryptographic Proof VERIFIED!";
+                        verificationStatus = "✅ You VERIFIED the cryptographic Proof with your browser!";
                         isValid = true;
                         createConfetti(); // Celebrate successful verification!
                     } else {
