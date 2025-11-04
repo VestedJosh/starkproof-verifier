@@ -478,6 +478,9 @@
                         </button>
                     </div>
 
+                    <!-- Faucet Claim Status -->
+                    <div id="faucetStatus" style="display: none; margin-bottom: 20px;"></div>
+
                     <!-- Direct sendRequest Parameters -->
                     <!-- <div class="section" style="margin-top: 10px;">
                         <h2>🧩 Direct sendRequest Parameters</h2>
@@ -951,6 +954,127 @@ return ethers.getBytes(encodedData);`;
             blockExplorerUrls: ['https://arbiscan.io/']
         };
 
+        // Gas Faucet Contract Configuration
+        const FAUCET_CONTRACT_ADDRESS = '0x3136208dd9f6D995E76CFF47fa2A0D2488e1Bdd2';
+        const FAUCET_CONTRACT_ABI = [
+            {
+                "inputs": [],
+                "name": "claim",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "deposit",
+                "outputs": [],
+                "stateMutability": "payable",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "CLAIM_AMOUNT",
+                "outputs": [
+                    {
+                        "internalType": "uint256",
+                        "name": "",
+                        "type": "uint256"
+                    }
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    {
+                        "internalType": "address",
+                        "name": "",
+                        "type": "address"
+                    }
+                ],
+                "name": "claimCount",
+                "outputs": [
+                    {
+                        "internalType": "uint256",
+                        "name": "",
+                        "type": "uint256"
+                    }
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "getBalance",
+                "outputs": [
+                    {
+                        "internalType": "uint256",
+                        "name": "",
+                        "type": "uint256"
+                    }
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    {
+                        "internalType": "address",
+                        "name": "user",
+                        "type": "address"
+                    }
+                ],
+                "name": "getRemainingClaims",
+                "outputs": [
+                    {
+                        "internalType": "uint256",
+                        "name": "",
+                        "type": "uint256"
+                    }
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "MAX_CLAIMS_PER_ADDRESS",
+                "outputs": [
+                    {
+                        "internalType": "uint256",
+                        "name": "",
+                        "type": "uint256"
+                    }
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "anonymous": false,
+                "inputs": [
+                    {
+                        "indexed": true,
+                        "internalType": "address",
+                        "name": "claimer",
+                        "type": "address"
+                    },
+                    {
+                        "indexed": false,
+                        "internalType": "uint256",
+                        "name": "amount",
+                        "type": "uint256"
+                    },
+                    {
+                        "indexed": false,
+                        "internalType": "uint256",
+                        "name": "totalClaims",
+                        "type": "uint256"
+                    }
+                ],
+                "name": "Claimed",
+                "type": "event"
+            }
+        ];
+
         // Chainlink Functions Contract Configuration
         const CHAINLINK_CONTRACT_ADDRESS = '0x546c37d802Fa96Df55014115124dED096f09C83B';
         // Hardcoded Functions request parameters (update ENCRYPTED_SECRETS_REFERENCE before use)
@@ -1369,8 +1493,184 @@ return ethers.getBytes(encodedData);`;
             });
         }
 
-        function openGasFaucet() {
-            window.open('https://faucet.quicknode.com/arbitrum/arbitrum-one', '_blank');
+        async function openGasFaucet() {
+            if (!userAddress) {
+                alert('Please connect your wallet first');
+                return;
+            }
+
+            const statusDiv = document.getElementById('faucetStatus');
+            statusDiv.style.display = 'block';
+            statusDiv.innerHTML = `
+                <div class="info-box info-blue">
+                    <p style="text-align: center;">⏳ Preparing to claim gas tokens...</p>
+                </div>
+            `;
+
+            try {
+                // Check if provider is initialized
+                if (!provider || !signer) {
+                    provider = new ethers.providers.Web3Provider(window.ethereum);
+                    signer = provider.getSigner();
+                }
+
+                // Create contract instance
+                const faucetContract = new ethers.Contract(
+                    FAUCET_CONTRACT_ADDRESS,
+                    FAUCET_CONTRACT_ABI,
+                    signer
+                );
+
+                // Check remaining claims (optional - good UX)
+                try {
+                    const remainingClaims = await faucetContract.getRemainingClaims(userAddress);
+                    const claimAmount = await faucetContract.CLAIM_AMOUNT();
+                    const claimAmountEth = ethers.utils.formatEther(claimAmount);
+                    
+                    if (remainingClaims.toString() === '0') {
+                        statusDiv.innerHTML = `
+                            <div class="info-box" style="background: #fff3cd; border-color: #ffc107;">
+                                <h3 style="color: #856404; margin-top: 0;">⚠️ Max Claims Reached</h3>
+                                <p>You have reached the maximum number of claims per address.</p>
+                            </div>
+                        `;
+                        return;
+                    }
+
+                    statusDiv.innerHTML = `
+                        <div class="info-box info-blue">
+                            <p style="text-align: center;">⏳ Checking faucet status...</p>
+                            <p style="text-align: center; margin-top: 10px;">Remaining claims: <strong>${remainingClaims.toString()}</strong></p>
+                            <p style="text-align: center;">Claim amount: <strong>${claimAmountEth} ETH</strong></p>
+                        </div>
+                    `;
+                } catch (checkError) {
+                    console.warn('Could not check remaining claims:', checkError);
+                    // Continue anyway
+                }
+
+                // Estimate gas
+                statusDiv.innerHTML = `
+                    <div class="info-box info-blue">
+                        <p style="text-align: center;">⏳ Estimating gas for claim transaction...</p>
+                    </div>
+                `;
+
+                let gasEstimate;
+                try {
+                    gasEstimate = await faucetContract.estimateGas.claim();
+                    console.log('Gas estimate:', gasEstimate.toString());
+                } catch (estimateError) {
+                    console.warn('Gas estimation failed:', estimateError);
+                    // Use default gas limit
+                    gasEstimate = ethers.BigNumber.from('100000');
+                }
+
+                // Send claim transaction
+                statusDiv.innerHTML = `
+                    <div class="info-box info-blue">
+                        <p style="text-align: center;">⏳ Sending claim transaction...</p>
+                        <p style="text-align: center; margin-top: 10px;">Estimated gas: <code>${gasEstimate.toString()}</code></p>
+                        <p style="text-align: center; margin-top: 10px;"><strong>Please confirm in your wallet</strong></p>
+                    </div>
+                `;
+
+                const tx = await faucetContract.claim({
+                    gasLimit: gasEstimate.mul(120).div(100) // Add 20% buffer
+                });
+
+                console.log('Claim transaction sent:', tx.hash);
+
+                statusDiv.innerHTML = `
+                    <div class="info-box info-blue">
+                        <p style="text-align: center;">⏳ Waiting for transaction confirmation...</p>
+                        <p style="text-align: center; margin-top: 10px;">TX Hash: <code>${tx.hash.substring(0, 10)}...${tx.hash.substring(tx.hash.length - 8)}</code></p>
+                        <p style="text-align: center; margin-top: 10px;">
+                            <a href="https://arbiscan.io/tx/${tx.hash}" target="_blank" style="color: #667eea;">View on Arbiscan →</a>
+                        </p>
+                    </div>
+                `;
+
+                // Wait for confirmation
+                const receipt = await tx.wait(1);
+
+                console.log('Transaction confirmed:', receipt);
+
+                // Extract claim event data
+                let claimAmount = null;
+                let totalClaims = null;
+                if (receipt.events && receipt.events.length > 0) {
+                    const claimEvent = receipt.events.find(e => e.event === 'Claimed');
+                    if (claimEvent && claimEvent.args) {
+                        claimAmount = claimEvent.args.amount;
+                        totalClaims = claimEvent.args.totalClaims;
+                    }
+                }
+
+                // If no event data, try to get claim amount from contract
+                if (!claimAmount) {
+                    try {
+                        claimAmount = await faucetContract.CLAIM_AMOUNT();
+                    } catch (e) {
+                        console.warn('Could not fetch claim amount:', e);
+                    }
+                }
+
+                const claimAmountEth = claimAmount ? ethers.utils.formatEther(claimAmount) : 'N/A';
+
+                // Success!
+                createConfetti();
+
+                statusDiv.innerHTML = `
+                    <div class="info-box success-box">
+                        <h3 style="color: #28a745; margin-top: 0;">✅ Gas Tokens Claimed Successfully!</h3>
+                        <p><strong>Transaction confirmed on Arbitrum!</strong></p>
+                        <p style="margin-top: 15px;"><strong>Transaction Details:</strong></p>
+                        <ul style="margin: 10px 0 0 20px; line-height: 1.8;">
+                            <li>TX Hash: <code>${tx.hash}</code></li>
+                            <li>Block: <code>${receipt.blockNumber}</code></li>
+                            <li>Gas Used: <code>${receipt.gasUsed.toString()}</code></li>
+                            <li>Amount Claimed: <strong>${claimAmountEth} ETH</strong></li>
+                            ${totalClaims ? `<li>Total Claims: <strong>${totalClaims.toString()}</strong></li>` : ''}
+                        </ul>
+                        <p style="margin-top: 15px;">
+                            <a href="https://arbiscan.io/tx/${tx.hash}" target="_blank" style="color: #28a745; font-weight: bold;">
+                                View on Arbiscan →
+                            </a>
+                        </p>
+                    </div>
+                `;
+
+            } catch (error) {
+                console.error('Error claiming from faucet:', error);
+
+                let errorMessage = error.message;
+                let errorDetails = '';
+
+                if (error.code === 4001) {
+                    errorMessage = 'Transaction rejected by user';
+                } else if (error.code === 'INSUFFICIENT_FUNDS') {
+                    errorMessage = 'Insufficient funds for gas';
+                } else if (error.message && error.message.includes('MaxClaimsReached')) {
+                    errorMessage = 'Maximum claims reached for this address';
+                    errorDetails = '<p style="margin-top: 10px;">You have already claimed the maximum number of times allowed.</p>';
+                } else if (error.message && error.message.includes('InsufficientBalance')) {
+                    errorMessage = 'Faucet has insufficient balance';
+                    errorDetails = '<p style="margin-top: 10px;">The faucet contract does not have enough funds. Please try again later.</p>';
+                }
+
+                statusDiv.innerHTML = `
+                    <div class="info-box" style="background: #f8d7da; border-color: #dc3545;">
+                        <h3 style="color: #dc3545; margin-top: 0;">❌ Claim Failed</h3>
+                        <p><strong>Error:</strong> ${errorMessage}</p>
+                        ${errorDetails}
+                        <details style="margin-top: 15px;">
+                            <summary style="cursor: pointer; color: #721c24; font-weight: bold;">Show technical details</summary>
+                            <pre style="background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto; margin-top: 10px; font-size: 0.85em;">${JSON.stringify(error, null, 2)}</pre>
+                        </details>
+                    </div>
+                `;
+            }
         }
 
         // Call Chainlink Functions to verify proof on-chain via sendRequest(...)
